@@ -11,7 +11,6 @@ build/
 *.ckpt
 *.safetensors
 *.bin
-*.parquet
 *.log
 *.swp
 .DS_Store
@@ -24,3 +23,4 @@ models/
 venv/
 .venv/
 .ipynb_checkpoints/
+verl.egg-info/
