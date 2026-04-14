@@ -8,14 +8,17 @@ from verl import DataProto
 class LeashRewardManager:
     """
     Manages Lagrangian leash for DAPO, specifically for controlling output length.
-    
+
     Mathematical formulation (ratio-based):
-    $$\mathcal{L}(\theta, \lambda) = -\mathbb{E}_{\pi_\theta}[R(x,y)] + \lambda \cdot g(\pi_\theta)$$
-    
-    where $g(\pi_\theta) = \frac{\mathbb{E}_{\pi_\theta}[|y|]}{L_{target}} - 1$ is the normalized leash.
-    
-    The augmented reward becomes:
-    $$\tilde{R}(x,y) = R(x,y) - \lambda \cdot (\frac{|y|}{L_{target}} - 1)$$
+    $$\mathcal{L}(\theta, \lambda) = J_R(\theta) - \lambda \cdot J_P(\theta)$$
+
+    where $J_P(\theta) = \mathbb{E}[\frac{L(y)}{L_t} - 1]$ is the constraint violation.
+
+    One-sided penalized reward (Eq.10 in paper):
+    $$r''(x,y) = r(x,y) - \lambda \cdot \max(0, \frac{L(y)}{L_t} - 1)$$
+
+    Clipped reward (Eq.11 in paper):
+    $$r'''(x,y) = \text{clip}(r''(x,y), -1, 1)$$
     """
     
     def __init__(
@@ -89,11 +92,12 @@ class LeashRewardManager:
     ) -> Union[torch.Tensor, Dict[str, Union[torch.Tensor, Dict]]]:
         """
         Apply Lagrangian leash to rewards.
-        
-        Formulas (ratio-based):
-        - Augmented reward: $\tilde{r}_t = r_t - \lambda \cdot \mathbb{1}[t = T] \cdot (\frac{T}{L_{target}} - 1)$
-        - Leash violation: $g = \frac{\mathbb{E}[|y|]}{L_{target}} - 1$
-        - Lambda update: $\lambda = \text{clip}(\lambda + \eta_\lambda \cdot g, \lambda_{min}, \lambda_{max})$
+
+        Formulas (ratio-based, from paper):
+        - One-sided penalty per sample: $\Delta_i = \max(0, \frac{L(y_i)}{L_t} - 1)$
+        - Shaped reward: $r'''(x,y) = \text{clip}(r(x,y) - \lambda \cdot \Delta_i, -1, 1)$
+        - Constraint violation: $\hat{J}_P = \frac{1}{BG} \sum_{b,i} (\frac{L(y_{b,i})}{L_t} - 1)$
+        - Lambda update: $\lambda = \text{clip}(\lambda + \alpha_\lambda \cdot \hat{J}_P, \lambda_{min}, \lambda_{max})$
         """
         # Get rewards
         if original_rewards is None:
@@ -153,8 +157,8 @@ class LeashRewardManager:
             if violation_ratio > 0:  # Any violation above target
                 num_violations += 1
             
-            # Apply penalty at the last token of the response
-            # Formula: $\tilde{r}_T = r_T - \lambda \cdot (\frac{|y|}{L_{target}} - 1)$
+            # Apply one-sided penalty at the last token of the response
+            # Formula: $r''_T = r_T - \lambda \cdot \max(0, \frac{L(y)}{L_t} - 1)$
             if valid_response_length > 0:
                 # penalty = self.lagrange_multiplier * violation_ratio
                 penalty = max(0, self.lagrange_multiplier * violation_ratio)
